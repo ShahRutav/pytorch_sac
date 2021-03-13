@@ -83,15 +83,22 @@ def evaluate(env, agent, cfg, attach_state):
         average_episode_reward /= cfg.num_eval_episodes
         return average_episode_reward
 
-
-
-@hydra.main(config_path='./expert/cartpole_swingup_state/config.yaml', strict=True)
+@hydra.main(config_path='./expert/cartpole_swingup_state/config.yaml', strict=False)
 def main(cfg):
-	expert_path="/home/bt1/18CS10050/pytorch_sac/expert/cartpole_swingup_state"
-	actor_path=expert_path + "/actor.pt"
-	attach_state = False
+	from omegaconf import OmegaConf
+	attach_state = cfg.attach_state
+	from_pixels = cfg.from_pixels
+	if cfg.user_config:
+		print("+++++++++++++++++ Using user specified config")
+		cfg = OmegaConf.load(cfg.user_config)
+		cfg.attach_state = attach_state
+		cfg.from_pixels = from_pixels
+		
+	print("+++++++++++++++++ Configuration : \n", cfg)
+	expert_path = home + "/pytorch_sac/expert/" + cfg.env  +  "_state"
+	print("+++++++++++++++++ Expert Path : ", expert_path)
+	actor_path = expert_path + "/actor.pt"
 	
-	cfg.from_pixels=False
 	env = utils.make_env(cfg) # Make env based on cfg.
 	#if cfg.frame_stack = True:
 	#	self.env = utils.FrameStack(self.env, k=3)
@@ -102,9 +109,7 @@ def main(cfg):
 	cfg.agent.params.action_range = [float(env.action_space.low.min()), float(env.action_space.high.max())]
 	agent = hydra.utils.instantiate(cfg.agent)
 	print("Observation Dimension : ", cfg.agent.params.obs_dim)
-	
 
-	from omegaconf import OmegaConf
 	conf = OmegaConf.load(expert_path + '/config.yaml')
 	assert conf.env == cfg.env
 	conf.agent.params.action_dim = env.action_space.shape[0]
@@ -143,18 +148,16 @@ def main(cfg):
 		dataset.add(obs, state, action_expert, reward, done)
 	print("Time taken to add into buffer : ", time.time() - buffer_insert_start_time)
 
-	bc_update_steps = 100
+	bc_update_steps = 10000
 	bc_batch_size = 512
-	bc_eval_freq = 10
+	bc_eval_freq = 100
 	loss_fn = nn.MSELoss() 
 	bc_steps = 0
 	start_bc_time = time.time()
 	for i in range(bc_update_steps):
 		obses, state, actions_expert, _, _ = dataset.sample(bc_batch_size)
 		if attach_state :
-			obses = np.concatenate((obses, state), axis = 1)
-			print(obses.shape)
-			exit()
+			obses = torch.cat((obses, state), axis = 1)
 		if not cfg.from_pixels :
 			obses = state 
 		loss = update_actor_bc(agent, obses, actions_expert, loss_fn)

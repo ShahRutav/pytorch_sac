@@ -106,6 +106,8 @@ def main(cfg):
 	conf.agent.params.action_range = [float(env.action_space.low.min()), float(env.action_space.high.max())]
 	conf.agent.params.obs_dim = get_env_state_dim(conf)
 
+	assert conf.env == cfg.env
+
 	agent_expert = hydra.utils.instantiate(conf.agent)
 	agent_expert.actor.load_state_dict(
             torch.load(actor_path)

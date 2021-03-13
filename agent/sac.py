@@ -142,3 +142,6 @@ class SACAgent(Agent):
         if step % self.critic_target_update_frequency == 0:
             utils.soft_update_params(self.critic, self.critic_target,
                                      self.critic_tau)
+    def save_actor_critic(self, PATH):
+    	torch.save(self.actor.state_dict(), PATH + "actor.pt")
+    	torch.save(self.critic.state_dict(), PATH + "critic.pt")	

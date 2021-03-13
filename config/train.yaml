@@ -1,13 +1,21 @@
 defaults:
-    - agent: sac
+    - agent: sac_curl
 
 env: cheetah_run
+
+# Environment settings.
+from_pixels: False
+height: 224
+width: 224
+camera_id: 0
+frame_skip: 4
+frame_stack: False
 
 # this needs to be specified manually
 experiment: test_exp
 
 num_train_steps: 1e6
-replay_buffer_capacity: ${num_train_steps}
+replay_buffer_capacity: 100000
 
 num_seed_steps: 5000
 
@@ -22,13 +30,17 @@ log_save_tb: true
 
 # video recorder
 save_video: true
+save_model: False
 
 
 seed: 1
+prefix: ""
 
 
 # hydra configuration
 hydra:
     name: ${env}
     run:
-        dir: ./exp/${now:%Y.%m.%d}/${now:%H%M}_${agent.name}_${experiment}
+        #dir: /home/bt1/18CS10050/experiments_sac/${env}/${env}_${prefix}${now:%H%M%S}_${agent.name}_${experiment}_seed${seed}
+        dir: ./exp/${env}_${prefix}${now:%H%M%S}_${agent.name}_${experiment}_seed${seed}
+        #dir: ./expert/${env}_${prefix}

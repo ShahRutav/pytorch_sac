@@ -11,6 +11,69 @@ import math
 
 import dmc2gym
 
+from torchvision.models import resnet34, resnet18, resnet50, resnet101
+from PIL import Image
+import numpy as np
+from feature_extractor import *
+
+_encoders = {'resnet34':resnet34, 
+ 'resnet18':resnet18,  'resnet50':resnet50,  'resnet101':resnet101}
+
+class ObservationWrapper(gym.ObservationWrapper):
+    def __init__(self, env, encoder_type):
+        super().__init__(env)
+        self.encoder_type = encoder_type
+        self.use_gpu = torch.cuda.is_available()
+        if self.use_gpu:
+            self.device = 'cuda'
+            print('Using cuda for encoder...')
+        else:
+            self.device = 'cpu'
+            print('Using cpu for encoder...')
+        if self.encoder_type == 'resnet34' or self.encoder_type == 'resnet18' or self.encoder_type == 'resnet50' or self.encoder_type == 'resnet101':
+            self.encoder = Encoder(self.encoder_type).to(self.device)
+        else:
+            print('Please enter valid encoder type.')
+            raise Exception
+        self.image_transform = self.encoder.get_image_transform()
+        self._max_episode_steps = env._max_episode_steps
+        self.observation_space = gym.spaces.Box(low=(-np.inf), high=(np.inf), shape=(512, ))
+
+    def observation(self, obs):
+        img = obs
+        img = Image.fromarray(img)
+        img = self.image_transform(img).unsqueeze(0).to(self.device)
+        z = self.encoder.get_features(img)
+        return z
+
+class FrameStack(gym.Wrapper):
+    def __init__(self, env, k):
+        gym.Wrapper.__init__(self, env)
+        self._k = k
+        self._frames = deque([], maxlen=k)
+        shp = env.observation_space.shape
+        self.observation_space = gym.spaces.Box(
+            low=0,
+            high=1,
+            shape=((shp[0] * k,) + shp[1:]),
+            dtype=env.observation_space.dtype
+        )
+        self._max_episode_steps = env._max_episode_steps
+
+    def reset(self):
+        obs = self.env.reset()
+        for _ in range(self._k):
+            self._frames.append(obs)
+        return self._get_obs()
+
+    def step(self, action):
+        obs, reward, done, info = self.env.step(action)
+        self._frames.append(obs)
+        return self._get_obs(), reward, done, info
+
+    def _get_obs(self):
+        assert len(self._frames) == self._k
+        return np.concatenate(list(self._frames), axis=0)
 
 def make_env(cfg):
     """Helper function to create dm_control environment"""
@@ -24,12 +87,23 @@ def make_env(cfg):
     env = dmc2gym.make(domain_name=domain_name,
                        task_name=task_name,
                        seed=cfg.seed,
-                       visualize_reward=True)
+                       visualize_reward=False,
+                       from_pixels=cfg.from_pixels,
+                       height=cfg.height,
+                       width=cfg.width,
+                       camera_id=cfg.camera_id,
+                       frame_skip=cfg.frame_skip,
+                       channels_first=False,
+                       )
+
     env.seed(cfg.seed)
     assert env.action_space.low.min() >= -1
     assert env.action_space.high.max() <= 1
+    if cfg.from_pixels == True:
+        env = ObservationWrapper(env, "resnet34")
 
     return env
+
 
 
 class eval_mode(object):

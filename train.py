@@ -61,6 +61,9 @@ class Workspace(object):
             float(self.env.action_space.low.min()),
             float(self.env.action_space.high.max())
         ]
+        from omegaconf import OmegaConf 
+        OmegaConf.save(config=cfg, f="config.yaml")
+        
         self.agent = hydra.utils.instantiate(cfg.agent)
 
         self.replay_buffer = ReplayBuffer(self.env.observation_space.shape,
@@ -110,6 +113,8 @@ class Workspace(object):
                 if self.step > 0 and self.step % self.cfg.eval_frequency == 0:
                     self.logger.log('eval/episode', episode, self.step)
                     self.evaluate()
+                    if self.cfg.save_model:
+                    	self.agent.save_actor_critic('.')
 
                 self.logger.log('train/episode_reward', episode_reward,
                                 self.step)

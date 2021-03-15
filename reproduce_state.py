@@ -49,21 +49,19 @@ def make_env(cfg):
 
     return env
 
-def update_actor_bc(agent, obses, actions_expert, loss):
-	dist = agent.actor(obses)
-	actions = dist.rsample()
-
-	actor_loss = loss(actions, actions_expert) 
+def update_model_recon(model, obses, states, loss, optimizer):	
+	recon_states = model(obses)
+	recon_loss = loss(recon_states, states) 
 	#print("Actor loss : ", actor_loss)
 
-	agent.actor_optimizer.zero_grad()
-	actor_loss.backward()
-	agent.actor_optimizer.step()
-	return actor_loss
+	optimizer.zero_grad()
+	recon_loss.backward()
+	optimizer.step()
+	return recon_loss
 
-def evaluate(env, agent, cfg, attach_state):
+def evaluate(env, agent, model, cfg, attach_state):
         average_episode_reward = 0
-        for episode in range(cfg.num_eval_episodes):
+        for episode in range(1):
             obs = env.reset()
             agent.reset()
             #self.video_recorder.init(enabled=(episode == 0))
@@ -148,24 +146,30 @@ def main(cfg):
 		dataset.add(obs, state, action_expert, reward, done)
 	print("Time taken to add into buffer : ", time.time() - buffer_insert_start_time)
 
-	bc_update_steps = 20000
-	bc_batch_size = 1024
-	bc_eval_freq = 200
+	recon_update_steps = 20000
+	recon_batch_size = 1024
+	recon_eval_freq = 200
 	loss_fn = nn.MSELoss() 
-	bc_steps = 0
-	start_bc_time = time.time()
-	for i in range(bc_update_steps):
-		obses, state, actions_expert, _, _ = dataset.sample(bc_batch_size)
+	model = utils.MLP(cfg.agent.params.obs_dim, 1024, conf.agent.params.obs_dim, 2).to(cfg.device)
+	print("Learning Rate : ", cfg.agent.params.actor_lr)
+	optimizer = torch.optim.Adam(model.parameters(),
+	                             	lr=cfg.agent.params.actor_lr,
+	                                betas=cfg.agent.params.actor_betas)
+	recon_steps = 0
+	start_recon_time = time.time()
+	for i in range(recon_update_steps):
+		obses, states, actions_expert, _, _ = dataset.sample(recon_batch_size)
 		if attach_state :
-			obses = torch.cat((obses, state), axis = 1)
+			obses = torch.cat((obses, states), axis = 1)
 		if not cfg.from_pixels :
-			obses = state 
-		loss = update_actor_bc(agent, obses, actions_expert, loss_fn)
-		bc_steps += 1
-		if bc_steps % bc_eval_freq == 0:
-			average_ep_reward = evaluate(env, agent, cfg, attach_state)
-			print("Step : ", bc_steps, " Loss : ", loss.data, " Time taken : ", time.time() - start_bc_time)
-			print("Average Episode Reward : ", average_ep_reward)
+			obses = states 
+		loss = update_model_recon(model, obses, states, loss_fn, optimizer)
+		recon_steps += 1
+		if recon_steps % recon_eval_freq == 0:
+			#average_ep_reward = evaluate(env, agent, cfg, attach_state)
+			print("Step : ", recon_steps, " Loss : ", loss.data, " Time taken : ", time.time() - start_recon_time)
+			#print("Average Episode Reward : ", average_ep_reward)
+	average_ep_reward = evaluate(env, agent, model, cfg, attach_state)
 	print("Total time taken : ", time.time() - load_start_time)
 			
 		

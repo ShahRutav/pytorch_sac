@@ -18,6 +18,7 @@ import time
 from env_utils import * 
 from dataset import *
 from pathlib import Path
+import random
 home = str(Path.home())
 
 def make_env(cfg):
@@ -44,24 +45,10 @@ def make_env(cfg):
     env.seed(cfg.seed)
     assert env.action_space.low.min() >= -1
     assert env.action_space.high.max() <= 1
-    if cfg.from_pixels == True:
-    	env = ObservationWrapper(env, "resnet34")	
 
     return env
 
-def update_actor_bc(agent, obses, actions_expert, loss):
-	dist = agent.actor(obses)
-	actions = dist.rsample()
-
-	actor_loss = loss(actions, actions_expert) 
-	#print("Actor loss : ", actor_loss)
-
-	agent.actor_optimizer.zero_grad()
-	actor_loss.backward()
-	agent.actor_optimizer.step()
-	return actor_loss
-
-def evaluate(env, agent, cfg, attach_state):
+def evaluate(env, agent, cfg):
         average_episode_reward = 0
         for episode in range(cfg.num_eval_episodes):
             obs = env.reset()
@@ -83,23 +70,29 @@ def evaluate(env, agent, cfg, attach_state):
         average_episode_reward /= cfg.num_eval_episodes
         return average_episode_reward
 
+
+
 @hydra.main(config_path='./expert/cartpole_swingup_state/config.yaml', strict=False)
 def main(cfg):
 	from omegaconf import OmegaConf
 	attach_state = cfg.attach_state
 	from_pixels = cfg.from_pixels
+	height = cfg.height
+	width = cfg.width
 	if cfg.user_config:
 		print("+++++++++++++++++ Using user specified config")
 		cfg = OmegaConf.load(cfg.user_config)
 		cfg.attach_state = attach_state
 		cfg.from_pixels = from_pixels
+		cfg.height = height
+		cfg.width = width
 		
 	print("+++++++++++++++++ Configuration : \n", cfg)
 	expert_path = home + "/pytorch_sac/expert/" + cfg.env  +  "_state"
 	print("+++++++++++++++++ Expert Path : ", expert_path)
 	actor_path = expert_path + "/actor.pt"
 	
-	env = utils.make_env(cfg) # Make env based on cfg.
+	env = make_env(cfg) # Make env based on cfg.
 	#if cfg.frame_stack = True:
 	#	self.env = utils.FrameStack(self.env, k=3)
 	cfg.agent.params.obs_dim = env.observation_space.shape[0]
@@ -120,56 +113,59 @@ def main(cfg):
 	agent_expert.actor.load_state_dict(
             torch.load(actor_path)
         )
-	#video_recorder = VideoRecorder(None)
 
-	#print("DATASET CAPACITY : 1000000")
-	start_ind = 0
-	end_ind = 1000000
-	load_start_time = time.time()
-	data = torch.load(home + "/pytorch_sac/Data/" + cfg.env + str(start_ind) +  "_" + str(end_ind) +".pt")
-	print(data[0].shape)
-	print(data[1].shape)
-	print(data[2].shape)
-	print(data[3].shape)
-	print("Time to load the data  : ", time.time()-load_start_time)
-	dataset = Dataset((data[0].shape[1],), (data[1].shape[1],),
-				env.action_space.shape, 
-				int(end_ind - start_ind),
-				torch.device("cuda"))
+	collect_steps = 1000000
 	
-	buffer_insert_start_time = time.time()
-	for i in range(data[0].shape[0]):
-		obs = data[0][i]
-		state = data[1][i]	
-		action_expert = data[2][i]
-		reward = data[3][i]
-		done = data[4][i]
-		
-		dataset.add(obs, state, action_expert, reward, done)
-	print("Time taken to add into buffer : ", time.time() - buffer_insert_start_time)
+	step = 0
+	ep = 0
+	start_time = time.time()
+	output_folder = home + "/dataset/" + cfg.env
+	csv_data = []
 
-	bc_update_steps = 20000
-	bc_batch_size = 1024
-	bc_eval_freq = 200
-	loss_fn = nn.MSELoss() 
-	bc_steps = 0
-	start_bc_time = time.time()
-	for i in range(bc_update_steps):
-		obses, state, actions_expert, _, _ = dataset.sample(bc_batch_size)
-		if attach_state :
-			obses = torch.cat((obses, state), axis = 1)
-		if not cfg.from_pixels :
-			obses = state 
-		loss = update_actor_bc(agent, obses, actions_expert, loss_fn)
-		bc_steps += 1
-		if bc_steps % bc_eval_freq == 0:
-			average_ep_reward = evaluate(env, agent, cfg, attach_state)
-			print("Step : ", bc_steps, " Loss : ", loss.data, " Time taken : ", time.time() - start_bc_time)
-			print("Average Episode Reward : ", average_ep_reward)
-	print("Total time taken : ", time.time() - load_start_time)
+	while(step < collect_steps):	
+		obs = env.reset()
+		state = get_env_state(env, cfg)
+
+		action_expert = None
+		done = False
+		episode_step = 0
+		episode_reward = 0
+		ep_start_time = time.time()
+		while not done:
+			with utils.eval_mode(agent_expert):
+				action_expert = agent_expert.act(state, sample=False)
 			
-		
+			if ep%4 == 0 :
+				action_expert += random.uniform(-1, 1)
+			if ep%4 == 1 :
+				action_expert += random.uniform(-2,2)
+			if ep%4 == 2 :
+				action_expert += random.uniform(-5,5)
+			action_expert = np.clip(action_expert, -1, 1)			
+
+
+			next_obs, reward, done, extra = env.step(action_expert)
+			next_state = get_env_state(env, cfg)	
+			#print("XXXXXX\n", obs,"\n", state)
+			#data.add(obs, state, action_expert, reward, done)			
+			#print("Saving image of shape : ", obs.shape)
+			img = Image.fromarray(obs)
+			image_path = output_folder + "/train/" +   f"{cfg.env}_ep{ep:06d}_t{episode_step:06d}.png"
+			img.save(image_path)
+			csv_data.append(image_path)
+
+			step += 1
+			episode_step += 1
+			episode_reward += reward
+			done_no_max = 0 if episode_step + 1 == env._max_episode_steps else done
+			
+			obs = next_obs
+			state = next_state
+		ep += 1
+		print("Episode : ", ep, " Episode Reward : ", episode_reward, " Time taken by one episode : ", time.time() - ep_start_time)
 	
+	print("Total Time taken : ", time.time() - start_time)
+	np.savetxt(output_folder + "/images.csv", csv_data, delimiter =", ", fmt ='% s')
 
 if __name__ == '__main__':
     main()

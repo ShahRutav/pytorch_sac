@@ -20,34 +20,6 @@ from dataset import *
 from pathlib import Path
 home = str(Path.home())
 
-def make_env(cfg):
-    """Helper function to create dm_control environment"""
-    if cfg.env == 'ball_in_cup_catch':
-        domain_name = 'ball_in_cup'
-        task_name = 'catch'
-    else:
-        domain_name = cfg.env.split('_')[0]
-        task_name = '_'.join(cfg.env.split('_')[1:])
-
-    env = dmc2gym.make(domain_name=domain_name,
-                       task_name=task_name,
-                       seed=cfg.seed,
-                       visualize_reward=False,
-                       from_pixels=cfg.from_pixels,
-                       height=cfg.height,
-                       width=cfg.width,
-                       camera_id=cfg.camera_id,
-                       frame_skip=cfg.frame_skip,
-                       channels_first=False,
-                       )
-
-    env.seed(cfg.seed)
-    assert env.action_space.low.min() >= -1
-    assert env.action_space.high.max() <= 1
-    if cfg.from_pixels == True:
-    	env = ObservationWrapper(env, "resnet34")	
-
-    return env
 
 def update_actor_bc(agent, obses, actions_expert, loss):
 	dist = agent.actor(obses)
@@ -83,30 +55,40 @@ def evaluate(env, agent, cfg):
         return average_episode_reward
 
 
-
-@hydra.main(config_path='./expert/cartpole_swingup_state/config.yaml', strict=True)
+@hydra.main(config_path='./expert/cartpole_swingup_state/config.yaml', strict=False)
 def main(cfg):
-	expert_path="/home/bt1/18CS10050/pytorch_sac/expert/cartpole_swingup_state"
-	actor_path=expert_path + "/actor.pt"
+	from omegaconf import OmegaConf
+	attach_state = cfg.attach_state
+	from_pixels = cfg.from_pixels
+	encoder_type = cfg.encoder_type
+	if cfg.user_config:
+		print("+++++++++++++++++ Using user specified config")
+		cfg = OmegaConf.load(cfg.user_config)
+		cfg.attach_state = attach_state
+		cfg.from_pixels = from_pixels
+		cfg.encoder_type = encoder_type
+		
+	print("+++++++++++++++++ Configuration : \n", cfg)
+	expert_path = home + "/pytorch_sac/expert/" + cfg.env  +  "_state"
+	print("+++++++++++++++++ Expert Path : ", expert_path)
+	actor_path = expert_path + "/actor.pt"
 	
-	cfg.from_pixels=True
-	env = utils.make_env(cfg)
+	env = utils.make_env(cfg) # Make env based on cfg.
 	#if cfg.frame_stack = True:
 	#	self.env = utils.FrameStack(self.env, k=3)
 	cfg.agent.params.obs_dim = env.observation_space.shape[0]
+	if attach_state :
+		cfg.agent.params.obs_dim += get_env_state_dim(cfg)
 	cfg.agent.params.action_dim = env.action_space.shape[0]
 	cfg.agent.params.action_range = [float(env.action_space.low.min()), float(env.action_space.high.max())]
 	agent = hydra.utils.instantiate(cfg.agent)
 	print("Observation Dimension : ", cfg.agent.params.obs_dim)
-	
 
-	from omegaconf import OmegaConf
 	conf = OmegaConf.load(expert_path + '/config.yaml')
+	assert conf.env == cfg.env
 	conf.agent.params.action_dim = env.action_space.shape[0]
 	conf.agent.params.action_range = [float(env.action_space.low.min()), float(env.action_space.high.max())]
 	conf.agent.params.obs_dim = get_env_state_dim(conf)
-
-	assert conf.env == cfg.env
 
 	agent_expert = hydra.utils.instantiate(conf.agent)
 	agent_expert.actor.load_state_dict(
@@ -118,10 +100,10 @@ def main(cfg):
 				env.action_space.shape, 
 				1000000,
 				torch.device("cuda"))
-	print("DATASET CAPACITY : 1000000")
+	collect_steps = 1000000
+	print("DATASET CAPACITY : 1000000, Collecting Steps : ", collect_steps)
 	loss = nn.MSELoss() 
 	#collect_ep = 4000
-	collect_steps = 1000000
 	
 	step = 0
 	ep = 0
@@ -141,7 +123,7 @@ def main(cfg):
 				action_expert = agent_expert.act(state, sample=False)
 			next_obs, reward, done, extra = env.step(action_expert)
 			next_state = get_env_state(env, cfg)	
-			#print("XXXXXX\n", obs,"\n", state)
+			#print("XXXXXX\n", obs.shape,"\n", state.shape)
 			data.add(obs, state, action_expert, reward, done)			
 
 			step += 1
@@ -156,7 +138,7 @@ def main(cfg):
 			print("Episode : ", ep, " Episode Reward : ", episode_reward, " Time taken by one episode : ", time.time() - ep_start_time)
 	
 	print("Total Time taken : ", time.time() - start_time)
-	data.save(home + "/pytorch_sac/Data", prefix=cfg.env)
+	data.save(home + "/pytorch_sac/Data", prefix = cfg.env + "_" + cfg.encoder_type)
 
 if __name__ == '__main__':
     main()

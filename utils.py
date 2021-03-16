@@ -15,15 +15,20 @@ from torchvision.models import resnet34, resnet18, resnet50, resnet101
 from PIL import Image
 import numpy as np
 from feature_extractor import *
+from models.vanilla_vae import VanillaVAE
+from models.base import BaseVAE
+from pathlib import Path
+home = str(Path.home())
 
 _encoders = {'resnet34':resnet34, 
  'resnet18':resnet18,  'resnet50':resnet50,  'resnet101':resnet101}
 
 class ObservationWrapper(gym.ObservationWrapper):
-    def __init__(self, env, encoder_type):
+    def __init__(self, env, encoder_type, model_path, latent_dim):
         super().__init__(env)
         self.encoder_type = encoder_type
         self.use_gpu = torch.cuda.is_available()
+        self.latent_dim = latent_dim
         if self.use_gpu:
             self.device = 'cuda'
             print('Using cuda for encoder...')
@@ -32,12 +37,21 @@ class ObservationWrapper(gym.ObservationWrapper):
             print('Using cpu for encoder...')
         if self.encoder_type == 'resnet34' or self.encoder_type == 'resnet18' or self.encoder_type == 'resnet50' or self.encoder_type == 'resnet101':
             self.encoder = Encoder(self.encoder_type).to(self.device)
+        elif self.encoder_type == 'VanillaVAE':
+        	self.encoder = VanillaVAE(in_channels=3, latent_dim=self.latent_dim).to(self.device)
+        	if model_path is not None:
+        		checkpoint = torch.load(model_path, map_location=torch.device(self.device))
+        		self.encoder = load_state_dict(model=self.encoder, loaded_dict=checkpoint['state_dict'], prefix='model.')
+        		self.encoder.eval()
+        	else:
+        		print("Model path is None.")
+        		raise Exception
         else:
             print('Please enter valid encoder type.')
             raise Exception
         self.image_transform = self.encoder.get_image_transform()
         self._max_episode_steps = env._max_episode_steps
-        self.observation_space = gym.spaces.Box(low=(-np.inf), high=(np.inf), shape=(512, ))
+        self.observation_space = gym.spaces.Box(low=(-np.inf), high=(np.inf), shape=(self.latent_dim, ))
 
     def observation(self, obs):
         img = obs
@@ -100,9 +114,21 @@ def make_env(cfg):
     assert env.action_space.low.min() >= -1
     assert env.action_space.high.max() <= 1
     if cfg.from_pixels == True:
-        env = ObservationWrapper(env, "resnet34")
+        model_path = None
+        if cfg.encoder_type == "VanillaVAE":
+        	model_path = home + "/pytorch_sac/ckpts/" + cfg.env + "/_ckpt.ckpt"
+        	print("VanillaVAE encoder path: ", model_path)
+        env = ObservationWrapper(env, cfg.encoder_type, model_path, latent_dim=512)
 
     return env
+
+
+def load_state_dict(model, loaded_dict, prefix='model.') :
+	assert len(loaded_dict) == len(model.state_dict().keys()) 
+	n_clip = len(prefix)
+	adapted_dict = {k[n_clip:]: v for k, v in loaded_dict.items() if k.startswith(prefix)}
+	model.load_state_dict(adapted_dict)
+	return model
 
 
 

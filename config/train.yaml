@@ -10,6 +10,7 @@ width: 224
 camera_id: 0
 frame_skip: 4
 frame_stack: False
+encoder_type: resnet34
 
 # this needs to be specified manually
 experiment: test_exp

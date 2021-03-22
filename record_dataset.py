@@ -121,6 +121,15 @@ def main(cfg):
 		while not done:
 			with utils.eval_mode(agent_expert):
 				action_expert = agent_expert.act(state, sample=False)
+			if ep % 4 == 0:
+				action_expert = env.action_space.sample()
+			if ep % 4 == 1:
+				action_expert += np.random.rand(*action_expert.shape)*0.1
+			if ep % 4 == 2:
+				action_expert += np.random.rand(*action_expert.shape)*1		
+
+			action_expert = np.clip(action_expert, -1, 1)			
+
 			next_obs, reward, done, extra = env.step(action_expert)
 			next_state = get_env_state(env, cfg)	
 			#print("XXXXXX\n", obs.shape,"\n", state.shape)

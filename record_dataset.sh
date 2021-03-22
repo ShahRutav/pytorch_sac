@@ -21,6 +21,6 @@ export PATH="/home/bt1/18CS10050/anaconda3/bin:$PATH"
 export PATH="/home/bt1/18CS10050/anaconda3/envs/pytorch_sac/bin:$PATH"
 
 
-CUDA_VISIBLE_DEVICES=0,1 python record_dataset.py user_config=$HOME/pytorch_sac/expert/cheetah_run_state/config.yaml env=cheetah_run frame_skip=4 attach_state=False from_pixels=True encoder_type=resnet34
+CUDA_VISIBLE_DEVICES=0,1 python record_dataset.py user_config=$HOME/pytorch_sac/expert/ball_in_cup_catch_state/config.yaml env=ball_in_cup_catch frame_skip=4 attach_state=False from_pixels=True encoder_type=resnet34
 
-#CUDA_VISIBLE_DEVICES=0,1 python behavior_cloning.py user_config=$HOME/pytorch_sac/expert/cheetah_run_state/config.yaml env=cheetah_run frame_skip=4 attach_state=True from_pixels=True encoder_type=VanillaVAE > cheetah_run_obs_state_bc_bs1024_VanillaVAE.log
+#CUDA_VISIBLE_DEVICES=0,1 python behavior_cloning.py user_config=$HOME/pytorch_sac/expert/ball_in_cup_catch_state/config.yaml env=ball_in_cup_catch frame_skip=4 attach_state=True from_pixels=True encoder_type=VanillaVAE > ball_in_cup_catch_obs_state_bc_bs1024_VanillaVAE.log

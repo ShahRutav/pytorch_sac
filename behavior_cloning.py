@@ -59,11 +59,13 @@ def main(cfg):
 	from omegaconf import OmegaConf
 	attach_state = cfg.attach_state
 	from_pixels = cfg.from_pixels
+	encoder_type = cfg.encoder_type
 	if cfg.user_config:
 		print("+++++++++++++++++ Using user specified config")
 		cfg = OmegaConf.load(cfg.user_config)
 		cfg.attach_state = attach_state
 		cfg.from_pixels = from_pixels
+		cfg.encoder_type = encoder_type
 		
 	print("+++++++++++++++++ Configuration : \n", cfg)
 	expert_path = home + "/pytorch_sac/expert/" + cfg.env  +  "_state"
@@ -97,7 +99,7 @@ def main(cfg):
 	start_ind = 0
 	end_ind = 1000000
 	load_start_time = time.time()
-	data = torch.load(home + "/pytorch_sac/Data/" + cfg.env + str(start_ind) +  "_" + str(end_ind) +".pt")
+	data = torch.load(home + "/pytorch_sac/Data/" + cfg.env + "_" + cfg.encoder_type  + str(start_ind) +  "_" + str(end_ind) +".pt")
 	print(data[0].shape)
 	print(data[1].shape)
 	print(data[2].shape)

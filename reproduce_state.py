@@ -20,35 +20,6 @@ from dataset import *
 from pathlib import Path
 home = str(Path.home())
 
-def make_env(cfg):
-    """Helper function to create dm_control environment"""
-    if cfg.env == 'ball_in_cup_catch':
-        domain_name = 'ball_in_cup'
-        task_name = 'catch'
-    else:
-        domain_name = cfg.env.split('_')[0]
-        task_name = '_'.join(cfg.env.split('_')[1:])
-
-    env = dmc2gym.make(domain_name=domain_name,
-                       task_name=task_name,
-                       seed=cfg.seed,
-                       visualize_reward=False,
-                       from_pixels=cfg.from_pixels,
-                       height=cfg.height,
-                       width=cfg.width,
-                       camera_id=cfg.camera_id,
-                       frame_skip=cfg.frame_skip,
-                       channels_first=False,
-                       )
-
-    env.seed(cfg.seed)
-    assert env.action_space.low.min() >= -1
-    assert env.action_space.high.max() <= 1
-    if cfg.from_pixels == True:
-    	env = ObservationWrapper(env, "resnet34")	
-
-    return env
-
 def update_model_recon(model, obses, states, loss, optimizer):	
 	recon_states = model(obses)
 	recon_loss = loss(recon_states, states) 
@@ -61,36 +32,48 @@ def update_model_recon(model, obses, states, loss, optimizer):
 
 def evaluate(env, agent, model, cfg, attach_state):
         average_episode_reward = 0
+        states = []
+        states_recons = []
+
         for episode in range(1):
-            obs = env.reset()
             agent.reset()
-            #self.video_recorder.init(enabled=(episode == 0))
+            obs = env.reset()
+            state = get_env_state(env, cfg)
             done = False
             episode_reward = 0
             while not done:
-                with utils.eval_mode(agent):
-                    if attach_state :
+                if attach_state :
                     	obs = np.concatenate((obs, get_env_state(env, cfg) ), axis=0)
-                    action = agent.act(obs, sample=False)
+                state = get_env_state(env, cfg)
+                with torch.no_grad():
+                	state_recons = model(torch.Tensor(obs.reshape((1, obs.shape[0])) ).to("cuda")).reshape(-1)
+                	#print("Before appending" , state_recons.shape)
+                	states_recons.append(np.array(state_recons.cpu()))
+                states.append(state)
+
+                #with utils.eval_mode(agent):
+                	#action = agent.act(state, sample=False)
+                action = env.action_space.sample()
                 obs, reward, done, _ = env.step(action)
                 #video_recorder.record(self.env)
                 episode_reward += reward
 
             average_episode_reward += episode_reward
             #video_recorder.save(f'{self.step}.mp4')
-        average_episode_reward /= cfg.num_eval_episodes
-        return average_episode_reward
+        return states, states_recons 
 
 @hydra.main(config_path='./expert/cartpole_swingup_state/config.yaml', strict=False)
 def main(cfg):
 	from omegaconf import OmegaConf
 	attach_state = cfg.attach_state
 	from_pixels = cfg.from_pixels
+	encoder_type = cfg.encoder_type
 	if cfg.user_config:
 		print("+++++++++++++++++ Using user specified config")
 		cfg = OmegaConf.load(cfg.user_config)
 		cfg.attach_state = attach_state
 		cfg.from_pixels = from_pixels
+		cfg.encoder_type = encoder_type
 		
 	print("+++++++++++++++++ Configuration : \n", cfg)
 	expert_path = home + "/pytorch_sac/expert/" + cfg.env  +  "_state"
@@ -124,7 +107,7 @@ def main(cfg):
 	start_ind = 0
 	end_ind = 1000000
 	load_start_time = time.time()
-	data = torch.load(home + "/pytorch_sac/Data/" + cfg.env + str(start_ind) +  "_" + str(end_ind) +".pt")
+	data = torch.load(home + "/pytorch_sac/Data/" + cfg.env + "_" + cfg.encoder_type  + str(start_ind) +  "_" + str(end_ind) +".pt")
 	print(data[0].shape)
 	print(data[1].shape)
 	print(data[2].shape)
@@ -146,15 +129,16 @@ def main(cfg):
 		dataset.add(obs, state, action_expert, reward, done)
 	print("Time taken to add into buffer : ", time.time() - buffer_insert_start_time)
 
-	recon_update_steps = 20000
+	recon_update_steps = 10000
 	recon_batch_size = 1024
-	recon_eval_freq = 200
+	recon_eval_freq = 100
 	loss_fn = nn.MSELoss() 
 	model = utils.MLP(cfg.agent.params.obs_dim, 1024, conf.agent.params.obs_dim, 2).to(cfg.device)
 	print("Learning Rate : ", cfg.agent.params.actor_lr)
 	optimizer = torch.optim.Adam(model.parameters(),
 	                             	lr=cfg.agent.params.actor_lr,
 	                                betas=cfg.agent.params.actor_betas)
+	
 	recon_steps = 0
 	start_recon_time = time.time()
 	for i in range(recon_update_steps):
@@ -169,8 +153,22 @@ def main(cfg):
 			#average_ep_reward = evaluate(env, agent, cfg, attach_state)
 			print("Step : ", recon_steps, " Loss : ", loss.data, " Time taken : ", time.time() - start_recon_time)
 			#print("Average Episode Reward : ", average_ep_reward)
-	average_ep_reward = evaluate(env, agent, model, cfg, attach_state)
 	print("Total time taken : ", time.time() - load_start_time)
+	states, states_recon = evaluate(env, agent_expert, model, cfg, attach_state)
+	states_np = np.array(states)
+	states_recon_np = np.array(states_recon)
+	print(states_np.shape)
+	print(states_recon_np.shape)
+	np.savetxt(home + "/pytorch_sac/images/" + cfg.env + "_" + cfg.encoder_type  + "_" + 'State.csv', states_np, delimiter=',')
+	np.savetxt(home + "/pytorch_sac/images/" + cfg.env + "_" + cfg.encoder_type  + "_" + 'State_recon.csv', states_recon_np, delimiter=',')
+	
+	#import matplotlib as plt
+	#for i in range(states_np.shape[1]):
+	#	plt.plot(states_np[:,i], label='state')
+	#	plt.plot(states_recon_np[:,i], label='recon state')
+	#	plt.legend()
+	#	plt.save(home + "/pytorch_sac/images/" + cfg.env + "_" + cfg.encoder_type  + "_" + 'State' + str(i))
+
 			
 		
 	

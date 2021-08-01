@@ -13,6 +13,7 @@ import pickle as pkl
 from video import VideoRecorder
 from logger import Logger
 from replay_buffer import ReplayBuffer
+from utils import make_dir
 import utils
 
 import dmc2gym
@@ -68,6 +69,9 @@ class Workspace(object):
                                           int(cfg.replay_buffer_capacity),
                                           self.device)
 
+        if cfg.save_model or cfg.save_actor: 
+            self.model_dir = self.work_dir + "/models"
+            make_dir(self.model_dir)
         self.video_recorder = VideoRecorder(
             self.work_dir if cfg.save_video else None)
         self.step = 0
@@ -107,9 +111,13 @@ class Workspace(object):
                         self.step, save=(self.step > self.cfg.num_seed_steps))
 
                 # evaluate agent periodically
-                if self.step > 0 and self.step % self.cfg.eval_frequency == 0:
+                if self.step > 0 and episode % self.cfg.eval_frequency == 0:
                     self.logger.log('eval/episode', episode, self.step)
                     self.evaluate()
+                    if self.cfg.save_model:
+                        self.agent.save_sac(self.model_dir + f"/sac_ep{episode:06d}.pickle")
+                    if self.cfg.save_actor : 
+                        self.agent.save_actor(self.model_dir + f"/actor_ep{episode:06d}.pickle")
 
                 self.logger.log('train/episode_reward', episode_reward,
                                 self.step)
@@ -149,7 +157,7 @@ class Workspace(object):
             self.step += 1
 
 
-@hydra.main(config_path='config/train.yaml', strict=True)
+@hydra.main(config_path='config', config_name="train.yaml")
 def main(cfg):
     workspace = Workspace(cfg)
     workspace.run()

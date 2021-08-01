@@ -8,6 +8,7 @@ from agent import Agent
 import utils
 
 import hydra
+import pickle
 
 
 class SACAgent(Agent):
@@ -142,3 +143,20 @@ class SACAgent(Agent):
         if step % self.critic_target_update_frequency == 0:
             utils.soft_update_params(self.critic, self.critic_target,
                                      self.critic_tau)
+    def save_actor_critic(self, PATH):
+        torch.save(self.actor.state_dict(), PATH + "actor.pt")
+        torch.save(self.critic.state_dict(), PATH + "critic.pt")
+
+    def save_sac(self, PATH):
+        with open(PATH, 'wb') as f:
+            pickle.dump(self, f)
+
+    def save_actor(self, PATH):
+        with open(PATH, 'wb') as f:
+            pickle.dump(self.actor, f)
+
+    @classmethod
+    def load(filename):
+        with open(filename, 'rb') as f:
+            return pickle.load(f)
+

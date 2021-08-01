@@ -11,7 +11,7 @@ replay_buffer_capacity: ${num_train_steps}
 
 num_seed_steps: 5000
 
-eval_frequency: 10000
+eval_frequency: 1000
 num_eval_episodes: 10
 
 device: cuda
@@ -22,13 +22,15 @@ log_save_tb: true
 
 # video recorder
 save_video: true
+save_model: false 
+save_actor: true
 
 
 seed: 1
 
 
 # hydra configuration
+work_dir: "."
 hydra:
-    name: ${env}
     run:
-        dir: ./exp/${now:%Y.%m.%d}/${now:%H%M}_${agent.name}_${experiment}
+        dir: ${work_dir}/${env}_${experiment}_${now:%H%M}

@@ -12,7 +12,7 @@ import math
 import dmc2gym
 
 
-def make_env(cfg):
+def make_env_dmc(cfg):
     """Helper function to create dm_control environment"""
     if cfg.env == 'ball_in_cup_catch':
         domain_name = 'ball_in_cup'
@@ -31,6 +31,13 @@ def make_env(cfg):
 
     return env
 
+def make_env(cfg):
+    env = gym.make(cfg.env)
+    env.seed(cfg.seed)
+    assert env.action_space.low.min() >= -1
+    assert env.action_space.high.max() <= 1
+
+    return env
 
 class eval_mode(object):
     def __init__(self, *models):
@@ -82,7 +89,7 @@ def make_dir(*path_parts):
     try:
         os.mkdir(dir_path)
     except OSError:
-        pass
+            pass
     return dir_path
 
 def weight_init(m):

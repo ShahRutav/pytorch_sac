@@ -1,10 +1,11 @@
 defaults:
-    - agent: sac
+    - agent: sac 
 
-env: cheetah_run
+env: ant-expert-v2
+algorithm: SAC
 
 # this needs to be specified manually
-experiment: test_exp
+experiment: state 
 
 num_train_steps: 1e6
 replay_buffer_capacity: ${num_train_steps}
@@ -31,6 +32,16 @@ seed: 1
 
 # hydra configuration
 work_dir: "."
-hydra:
+env_dir: ${work_dir}/${env}_${experiment}_${algorithm}
+hydra: 
     run:
-        dir: ${work_dir}/${env}_${experiment}_${now:%H%M}
+        dir: ${work_dir}/${env_dir}
+    sweep:    
+        dir: ${env_dir} 
+        subdir: seed${seed}
+    job:
+        config:   
+            override_dirname:        
+                kv_sep: '='        
+                item_sep: ','        
+                exclude_keys: []

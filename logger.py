@@ -18,7 +18,8 @@ COMMON_TRAIN_FORMAT = [
 COMMON_EVAL_FORMAT = [
     ('episode', 'E', 'int'),
     ('step', 'S', 'int'),
-    ('episode_reward', 'R', 'float') 
+    ('eval_score', 'R', 'float'),
+    ('norm_score', 'NormR', 'float') 
 ]
 
 
@@ -138,7 +139,7 @@ class Logger(object):
         train_format = COMMON_TRAIN_FORMAT + AGENT_TRAIN_FORMAT[agent]
         self._train_mg = MetersGroup(os.path.join(log_dir, 'train'),
                                      formating=train_format)
-        self._eval_mg = MetersGroup(os.path.join(log_dir, 'eval'),
+        self._eval_mg = MetersGroup(os.path.join(log_dir, 'log'),
                                     formating=COMMON_EVAL_FORMAT)
 
     def _should_log(self, step, log_frequency):

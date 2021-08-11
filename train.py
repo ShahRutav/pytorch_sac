@@ -9,52 +9,41 @@ import os
 import sys
 import time
 import pickle as pkl
+from omegaconf import OmegaConf
 
-from video import VideoRecorder
-from logger import Logger
-from replay_buffer import ReplayBuffer
-from utils import make_dir
-import utils
+from vrl.algos.pytorch_sac.video import VideoRecorder
+from vrl.algos.pytorch_sac.logger import Logger
+from vrl.algos.pytorch_sac.replay_buffer import ReplayBuffer
+from vrl.algos.pytorch_sac import utils
+from vrl.utils.utils import make_dir, make_env, make_encoder
+import vrl.envs
 
 import dmc2gym
 import hydra
 
 
-def make_env(cfg):
-    """Helper function to create dm_control environment"""
-    if cfg.env == 'ball_in_cup_catch':
-        domain_name = 'ball_in_cup'
-        task_name = 'catch'
-    else:
-        domain_name = cfg.env.split('_')[0]
-        task_name = '_'.join(cfg.env.split('_')[1:])
-
-    env = dmc2gym.make(domain_name=domain_name,
-                       task_name=task_name,
-                       seed=cfg.seed,
-                       visualize_reward=True)
-    env.seed(cfg.seed)
-    assert env.action_space.low.min() >= -1
-    assert env.action_space.high.max() <= 1
-
-    return env
-
-
-class Workspace(object):
+class SACWorkspace(object):
     def __init__(self, cfg):
         self.work_dir = os.getcwd()
         print(f'workspace: {self.work_dir}')
 
         self.cfg = cfg
 
-        self.logger = Logger(self.work_dir,
+        self.log_dir = os.path.join(self.work_dir, 'logs')
+        make_dir(self.log_dir)
+        self.logger = Logger(self.log_dir,
                              save_tb=cfg.log_save_tb,
                              log_frequency=cfg.log_frequency,
                              agent=cfg.agent.name)
 
         utils.set_seed_everywhere(cfg.seed)
         self.device = torch.device(cfg.device)
-        self.env = utils.make_env(cfg)
+        encoder = make_encoder(**cfg.encoder_args) 
+        transform = encoder.get_transform
+        latent_dim = encoder.latent_dim
+
+        self.env = make_env(**cfg.env_args, encoder=encoder, transform=transform, latent_dim=latent_dim)
+        self.eval_episode_freq  = int(cfg.eval_frequency/self.env.horizon)
 
         cfg.agent.params.obs_dim = self.env.observation_space.shape[0]
         cfg.agent.params.action_dim = self.env.action_space.shape[0]
@@ -94,7 +83,11 @@ class Workspace(object):
             average_episode_reward += episode_reward
             self.video_recorder.save(f'{self.step}.mp4')
         average_episode_reward /= self.cfg.num_eval_episodes
-        self.logger.log('eval/episode_reward', average_episode_reward,
+        self.logger.log('eval/eval_score', average_episode_reward,
+                        self.step)
+        self.logger.log('eval/norm_score', self.env.get_normalized_score(average_episode_reward),
+                        self.step)
+        self.logger.log('eval/total_num_samples', self.step,
                         self.step)
         self.logger.dump(self.step)
 
@@ -111,7 +104,7 @@ class Workspace(object):
                         self.step, save=(self.step > self.cfg.num_seed_steps))
 
                 # evaluate agent periodically
-                if self.step > 0 and episode % self.cfg.eval_frequency == 0:
+                if self.step > 0 and episode % self.eval_episode_freq == 0:
                     self.logger.log('eval/episode', episode, self.step)
                     self.evaluate()
                     if self.cfg.save_model:
@@ -159,7 +152,7 @@ class Workspace(object):
 
 @hydra.main(config_path='config', config_name="train.yaml")
 def main(cfg):
-    workspace = Workspace(cfg)
+    workspace = SACWorkspace(cfg)
     workspace.run()
 
 

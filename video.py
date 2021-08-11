@@ -3,7 +3,7 @@ import os
 import numpy as np
 import sys
 
-import utils
+from vrl.algos.pytorch_sac import utils
 
 class VideoRecorder(object):
     def __init__(self, root_dir, height=256, width=256, camera_id=0, fps=30):

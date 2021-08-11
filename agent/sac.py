@@ -4,8 +4,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 
-from agent import Agent
-import utils
+from vrl.algos.pytorch_sac.agent import Agent
+from vrl.algos.pytorch_sac import utils
 
 import hydra
 import pickle

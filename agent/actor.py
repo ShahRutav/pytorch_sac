@@ -5,7 +5,7 @@ from torch import nn
 import torch.nn.functional as F
 from torch import distributions as pyd
 
-import utils
+from vrl.algos.pytorch_sac import utils
 
 
 class TanhTransform(pyd.transforms.Transform):

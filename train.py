@@ -18,7 +18,7 @@ from vrl.algos.pytorch_sac import utils
 from vrl.utils.utils import make_dir, make_env, make_encoder
 import vrl.envs
 
-import dmc2gym
+#import dmc2gym
 import hydra
 
 

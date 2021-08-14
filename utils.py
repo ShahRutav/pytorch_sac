@@ -9,7 +9,7 @@ from collections import deque
 import random
 import math
 
-import dmc2gym
+#import dmc2gym
 
 
 def make_env_dmc(cfg):

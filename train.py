@@ -9,6 +9,7 @@ import os
 import sys
 import time
 import pickle as pkl
+from vrl.algos.pytorch_sac import tensor_utils
 from omegaconf import OmegaConf
 
 from vrl.algos.pytorch_sac.video import VideoRecorder
@@ -68,7 +69,14 @@ class SACWorkspace(object):
 
     def evaluate(self):
         average_episode_reward = 0
+        paths = []
         for episode in range(self.cfg.algos.num_eval_episodes):
+            observations=[]
+            actions=[]
+            rewards=[]
+            agent_infos = []
+            env_infos = []
+
             obs = self.env.reset()
             self.agent.reset()
             self.video_recorder.init(enabled=(episode == 0))
@@ -77,13 +85,35 @@ class SACWorkspace(object):
             while not done:
                 with utils.eval_mode(self.agent):
                     action = self.agent.act(obs, sample=False)
-                obs, reward, done, _ = self.env.step(action)
+                observations.append(obs)
+                obs, reward, done, env_info = self.env.step(action)
                 self.video_recorder.record(self.env)
                 episode_reward += reward
+
+                actions.append(action)
+                rewards.append(reward)
+                env_infos.append(env_info)
+
+            path = dict(
+                    observations=np.array(observations),
+                    actions=np.array(actions),
+                    rewards=np.array(rewards),
+                    env_infos=tensor_utils.stack_tensor_dict_list(env_infos),
+                    terminated=done
+                )
+            paths.append(path)
 
             average_episode_reward += episode_reward
             self.video_recorder.save(f'{self.step}.mp4')
         average_episode_reward /= self.cfg.algos.num_eval_episodes
+
+        try :
+            success_percentage = self.env.env.evaluate_success(paths)
+            self.logger.log('eval/eval_success', success_percentage,
+                            self.step)
+        except Exception as e:
+            print("ERROR: ", str(e))
+            pass
         self.logger.log('eval/eval_score', average_episode_reward,
                         self.step)
         self.logger.log('eval/norm_score', self.env.get_normalized_score(average_episode_reward),
@@ -91,10 +121,12 @@ class SACWorkspace(object):
         self.logger.log('eval/total_num_samples', self.step,
                         self.step)
         self.logger.dump(self.step)
+        return average_episode_reward
 
     def run(self):
         episode, episode_reward, done = 0, 0, True
         start_time = time.time()
+        best_eval_score = -1e6
         while self.step < self.cfg.algos.num_train_steps:
             if done:
                 if self.step > 0:
@@ -107,11 +139,18 @@ class SACWorkspace(object):
                 # evaluate agent periodically
                 if self.step > 0 and episode % self.eval_episode_freq == 0:
                     self.logger.log('eval/episode', episode, self.step)
-                    self.evaluate()
+                    curr_eval_score = self.evaluate()
                     if self.cfg.algos.save_model:
                         self.agent.save_sac(self.model_dir + f"/sac_ep{episode:06d}.pickle")
+                        if curr_eval_score > best_eval_score:
+                            print("+++++ Updating best model")
+                            self.agent.save_sac(self.model_dir + f"/sac_best.pickle")
                     if self.cfg.algos.save_actor :
                         self.agent.save_actor(self.model_dir + f"/actor_ep{episode:06d}.pickle")
+                        if curr_eval_score > best_eval_score:
+                            print("+++++ Updating best actor")
+                            self.agent.save_sac(self.model_dir + f"/actor_best.pickle")
+                    best_eval_score = max(curr_eval_score, best_eval_score)
 
                 self.logger.log('train/episode_reward', episode_reward,
                                 self.step)
